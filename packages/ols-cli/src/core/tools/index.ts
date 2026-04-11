@@ -103,12 +103,40 @@ import {
 	readToolDefinition,
 } from "./read.js";
 import { createWriteTool, createWriteToolDefinition, writeTool, writeToolDefinition } from "./write.js";
+import {
+	olsQueryTool,
+	olsStreamingTool,
+	olsHealthTool,
+	olsConversationsTool,
+	olsFeedbackTool,
+	ocGetTool,
+	ocDescribeTool,
+	ocLogsTool,
+	ocExecTool,
+	clusterStatusTool,
+} from "./ols/index.js";
 
 export type Tool = AgentTool<any>;
 export type ToolDef = ToolDefinition<any, any>;
 
 export const codingTools: Tool[] = [readTool, bashTool, editTool, writeTool];
 export const readOnlyTools: Tool[] = [readTool, grepTool, findTool, lsTool];
+
+/** OLS default tools — OpenShift Lightspeed + bash + read */
+export const olsTools: Tool[] = [
+	olsQueryTool,
+	olsStreamingTool,
+	olsHealthTool,
+	olsConversationsTool,
+	olsFeedbackTool,
+	ocGetTool,
+	ocDescribeTool,
+	ocLogsTool,
+	ocExecTool,
+	clusterStatusTool,
+	bashTool,
+	readTool,
+];
 
 export const allTools = {
 	read: readTool,
@@ -118,6 +146,18 @@ export const allTools = {
 	grep: grepTool,
 	find: findTool,
 	ls: lsTool,
+	// OLS tools
+	ols_query: olsQueryTool,
+	ols_stream: olsStreamingTool,
+	ols_health: olsHealthTool,
+	ols_conversations: olsConversationsTool,
+	ols_feedback: olsFeedbackTool,
+	// OpenShift tools
+	oc_get: ocGetTool,
+	oc_describe: ocDescribeTool,
+	oc_logs: ocLogsTool,
+	oc_exec: ocExecTool,
+	cluster_status: clusterStatusTool,
 };
 
 export const allToolDefinitions = {
