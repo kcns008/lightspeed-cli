@@ -49,6 +49,30 @@ export OLS_SERVICE_URL=https://lightspeed-service.example.com:8443
 oc login https://api.my-cluster:6443
 ```
 
+## Tools
+
+| Tool | Description |
+|------|-------------|
+| `ols_query` | Query OLS for OpenShift knowledge (RAG-powered) |
+| `ols_stream` | Streaming query to OLS |
+| `ols_health` | Check OLS service health |
+| `ols_conversations` | List past conversations |
+| `ols_feedback` | Submit response feedback |
+| `oc_get` | Get OpenShift resources |
+| `oc_describe` | Describe resources in detail |
+| `oc_logs` | Fetch pod logs |
+| `oc_exec` | Execute commands in pods |
+| `cluster_status` | Quick cluster health overview |
+
+## Skills
+
+| Skill | When to Use |
+|-------|-------------|
+| `troubleshoot-pod` | Pod is CrashLooping, failing, or not ready |
+| `deploy-app` | Deploying a new application |
+| `security-audit` | Security posture review |
+| `cluster-health` | Overall cluster health check |
+
 ## Architecture
 
 ```
@@ -59,7 +83,9 @@ lightspeed-cli/
 │   ├── tui/           — Terminal UI library (from pi-mono)
 │   ├── ols-client/    — OLS REST API client (new)
 │   └── ols-cli/       — CLI entry point + TUI (from pi-mono coding-agent)
+│       └── src/core/tools/ols/  — OLS + OpenShift tools
 ├── skills/            — OpenShift-specific agent skills
+├── scripts/oc-lightspeed — oc plugin wrapper
 ├── .claude-plugin/    — Claude Code compatible
 ├── SKILL.md           — OpenClaw / AgentSkills compatible
 └── README.md

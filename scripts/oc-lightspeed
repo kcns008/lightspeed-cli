@@ -1,0 +1,17 @@
+#!/bin/bash
+# oc-lightspeed — OpenShift CLI plugin for Lightspeed
+# Install: cp oc-lightspeed /usr/local/bin/ (or anywhere in PATH)
+# Usage: oc lightspeed "how do I scale my deployment?"
+#
+# OpenShift CLI discovers plugins as executables named `oc-<name>` in PATH.
+
+set -e
+
+# Check if ols is installed
+if ! command -v ols &>/dev/null; then
+    echo "Error: lightspeed-cli not installed. Run: npm install -g lightspeed-cli"
+    exit 1
+fi
+
+# Forward all args to ols
+ols "$@"
