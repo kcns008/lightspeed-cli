@@ -1,0 +1,22 @@
+{
+	"name": "lightspeed-cli-monorepo",
+	"version": "0.1.0",
+	"private": true,
+	"description": "OpenShift Lightspeed CLI — AI-powered assistant for OpenShift from your terminal",
+	"workspaces": [
+		"packages/*"
+	],
+	"scripts": {
+		"build": "npm run build --workspaces",
+		"check": "npm run check --workspaces",
+		"test": "npm run test --workspaces",
+		"ols": "npx tsx packages/ols-cli/src/cli.ts"
+	},
+	"keywords": ["openshift", "lightspeed", "ols", "kubernetes", "cli", "ai-agent"],
+	"author": "Chin (kcns008)",
+	"license": "Apache-2.0",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/kcns008/lightspeed-cli.git"
+	}
+}

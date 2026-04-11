@@ -1,0 +1,36 @@
+{
+	"name": "@kcns008/ols-client",
+	"version": "0.1.0",
+	"description": "OpenShift Lightspeed Service REST API client",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"scripts": {
+		"clean": "rm -rf dist",
+		"build": "tsc -p tsconfig.json",
+		"test": "vitest --run"
+	},
+	"dependencies": {
+		"undici": "^7.19.1",
+		"js-yaml": "^4.1.0"
+	},
+	"devDependencies": {
+		"@types/node": "^24.3.0",
+		"@types/js-yaml": "^4.0.9",
+		"typescript": "^5.7.3"
+	},
+	"keywords": ["openshift", "lightspeed", "ols", "kubernetes", "cli"],
+	"author": "Chin",
+	"license": "Apache-2.0",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/kcns008/lightspeed-cli.git",
+		"directory": "packages/ols-client"
+	}
+}
