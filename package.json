@@ -1,22 +1,40 @@
 {
-	"name": "lightspeed-cli-monorepo",
-	"version": "0.1.0",
-	"private": true,
-	"description": "OpenShift Lightspeed CLI — AI-powered assistant for OpenShift from your terminal",
-	"workspaces": [
-		"packages/*"
-	],
-	"scripts": {
-		"build": "npm run build --workspaces",
-		"check": "npm run check --workspaces",
-		"test": "npm run test --workspaces",
-		"ols": "npx tsx packages/ols-cli/src/cli.ts"
-	},
-	"keywords": ["openshift", "lightspeed", "ols", "kubernetes", "cli", "ai-agent"],
-	"author": "Chin (kcns008)",
-	"license": "Apache-2.0",
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/kcns008/lightspeed-cli.git"
-	}
+  "name": "@ols-cli/lightspeed",
+  "version": "0.1.2",
+  "description": "OpenShift Lightspeed CLI — AI-powered assistant for OpenShift from your terminal",
+  "bin": {
+    "ols": "./bin/ols.js"
+  },
+  "files": [
+    "bin",
+    "skills",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "echo \"no tests yet\""
+  },
+  "keywords": [
+    "openshift", "lightspeed", "ols", "kubernetes", "cli",
+    "ai-agent", "assistant", "terminal", "devops"
+  ],
+  "author": "Chin (kcns008)",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kcns008/lightspeed-cli.git"
+  },
+  "homepage": "https://github.com/kcns008/lightspeed-cli#readme",
+  "bugs": {
+    "url": "https://github.com/kcns008/lightspeed-cli/issues"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@ols-cli/client": "^0.1.1"
+  }
 }

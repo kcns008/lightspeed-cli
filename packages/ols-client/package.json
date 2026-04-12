@@ -1,5 +1,5 @@
 {
-	"name": "@kcns008/ols-client",
+	"name": "@ols-cli/client",
 	"version": "0.1.0",
 	"description": "OpenShift Lightspeed Service REST API client",
 	"type": "module",
@@ -24,6 +24,10 @@
 		"@types/node": "^24.3.0",
 		"@types/js-yaml": "^4.0.9",
 		"typescript": "^5.7.3"
+	},
+	"publishConfig": {
+		"access": "public",
+		"registry": "https://registry.npmjs.org/"
 	},
 	"keywords": ["openshift", "lightspeed", "ols", "kubernetes", "cli"],
 	"author": "Chin",

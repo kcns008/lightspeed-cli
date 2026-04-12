@@ -20,16 +20,15 @@ export * from "./stream.js";
 export * from "./types.js";
 export * from "./utils/event-stream.js";
 export * from "./utils/json-parse.js";
-export type {
-	OAuthAuthInfo,
-	OAuthCredentials,
-	OAuthLoginCallbacks,
-	OAuthPrompt,
-	OAuthProvider,
-	OAuthProviderId,
-	OAuthProviderInfo,
-	OAuthProviderInterface,
-} from "./utils/oauth/types.js";
+// OAuth types removed for lightspeed-cli fork
+export type OAuthAuthInfo = any;
+export type OAuthCredentials = any;
+export type OAuthLoginCallbacks = any;
+export type OAuthPrompt = any;
+export type OAuthProvider = any;
+export type OAuthProviderId = any;
+export type OAuthProviderInfo = any;
+export type OAuthProviderInterface = any;
 export * from "./utils/overflow.js";
 export * from "./utils/typebox-helpers.js";
 export * from "./utils/validation.js";

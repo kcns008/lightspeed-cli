@@ -6,7 +6,7 @@
  */
 
 import type { AgentTool, ToolResult } from "@mariozechner/pi-agent-core";
-import { OLSClient, loadOLSConfig } from "@kcns008/ols-client";
+import { OLSClient, loadOLSConfig } from "@ols-cli/client";
 
 let client: OLSClient | null = null;
 

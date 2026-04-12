@@ -17,7 +17,26 @@ Connects to [OpenShift Lightspeed Service (OLS)](https://github.com/openshift/li
 ## Install
 
 ```bash
-npm install -g lightspeed-cli
+npm install -g @ols-cli/lightspeed
+```
+
+## Quick Start
+
+```bash
+# Configure OLS endpoint
+ols config set serviceUrl https://lightspeed-service.openshift-operators.svc:8443
+
+# Interactive mode
+ols
+
+# One-shot query
+ols "how do I scale my deployment?"
+
+# Health check
+ols health
+
+# List conversations
+ols conversations
 ```
 
 ## Usage
