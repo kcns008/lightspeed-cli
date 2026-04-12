@@ -1,16 +1,9 @@
 #!/usr/bin/env node
 /**
  * ols — OpenShift Lightspeed CLI
- *
- * Usage:
- *   ols                          Interactive mode
- *   ols "how do I scale?"        One-shot query
- *   ols health                   Check OLS health
- *   ols conversations            List conversations
- *   ols config set <key> <val>   Set config
- *   ols config show              Show config
+ * AI-powered assistant with OLS + NVIDIA NIM backends
  */
-const { OLSClient, loadOLSConfig, saveOLSConfig } = require("@ols-cli/client");
+const { OLSClient, smartQuery, loadOLSConfig, saveOLSConfig } = require("@ols-cli/client");
 
 const cyan = "\x1b[36m";
 const green = "\x1b[32m";
@@ -24,7 +17,11 @@ function configCmd(args) {
   const cmd = args[0];
   if (!cmd || cmd === "show") {
     const cfg = loadOLSConfig();
-    console.log(JSON.stringify(cfg, null, 2));
+    // Mask API keys
+    const safe = { ...cfg };
+    if (safe.nimApiKey) safe.nimApiKey = safe.nimApiKey.slice(0, 8) + "...";
+    if (safe._conversationId) delete safe._conversationId;
+    console.log(JSON.stringify(safe, null, 2));
     return;
   }
   if (cmd === "set" && args[1] && args[2] !== undefined) {
@@ -37,34 +34,60 @@ function configCmd(args) {
   }
   if (cmd === "init") {
     console.log(`${cyan}OpenShift Lightspeed CLI Configuration${reset}\n`);
+    console.log("  # Option 1: OpenShift Lightspeed Service");
     console.log("  ols config set serviceUrl https://lightspeed-service.example.com:8443");
-    console.log("  ols config set namespace openshift-operators\n");
-    console.log("Auth comes from kubeconfig — just run: oc login");
+    console.log("");
+    console.log("  # Option 2: NVIDIA NIM (works without OLS)");
+    console.log("  ols config set nimApiKey nvapi-xxxxx");
+    console.log("  ols config set nimModel nvidia/llama-3.1-nemotron-70b-instruct");
+    console.log("");
+    console.log("  # Auth from kubeconfig (for OLS): oc login");
     return;
   }
   console.log("Usage: ols config [show|set|init]");
 }
 
 async function healthCmd() {
-  try {
-    const client = new OLSClient(loadOLSConfig());
-    const h = await client.health();
-    console.log(`${green}✓${reset} OLS Status: ${h.status}`);
-    if (h.services) {
-      for (const [name, status] of Object.entries(h.services)) {
-        const icon = status === "ok" || status === "ready" ? green : yellow;
-        console.log(`  ${icon}●${reset} ${name}: ${status}`);
-      }
+  const cfg = loadOLSConfig();
+  console.log(`\n${bold}Health Check${reset}\n`);
+
+  // Check OLS
+  if (cfg.serviceUrl) {
+    try {
+      const client = new OLSClient(cfg);
+      const h = await client.health();
+      console.log(`  ${green}✓${reset} OLS: ${h.status}`);
+    } catch (e) {
+      console.log(`  ${red}✗${reset} OLS: ${e.message}`);
     }
-  } catch (e) {
-    console.error(`${red}✗${reset} ${e.message}`);
-    process.exit(1);
+  } else {
+    console.log(`  ${yellow}○${reset} OLS: not configured`);
   }
+
+  // Check NIM
+  if (cfg.nimApiKey) {
+    try {
+      const { NIMClient } = require("@ols-cli/client");
+      const nim = new NIMClient(cfg);
+      const resp = await nim.chat([{ role: "user", content: "ping" }]);
+      console.log(`  ${green}✓${reset} NIM: connected (${cfg.nimModel || "default model"})`);
+    } catch (e) {
+      console.log(`  ${red}✗${reset} NIM: ${e.message}`);
+    }
+  } else {
+    console.log(`  ${yellow}○${reset} NIM: not configured (set nimApiKey)`);
+  }
+  console.log();
 }
 
 async function conversationsCmd() {
+  const cfg = loadOLSConfig();
+  if (!cfg.serviceUrl) {
+    console.log(`${yellow}OLS not configured. Set serviceUrl first.${reset}`);
+    return;
+  }
   try {
-    const client = new OLSClient(loadOLSConfig());
+    const client = new OLSClient(cfg);
     const convos = await client.listConversations();
     if (convos.length === 0) {
       console.log(`${dim}No conversations found.${reset}`);
@@ -77,38 +100,37 @@ async function conversationsCmd() {
     }
   } catch (e) {
     console.error(`${red}✗${reset} ${e.message}`);
-    process.exit(1);
   }
 }
 
 async function queryCmd(question) {
   try {
-    const client = new OLSClient(loadOLSConfig());
-    const resp = await client.query({ query: question });
-    console.log(`\n${resp.response}\n`);
-    if (resp.referenced_documents && resp.referenced_documents.length) {
+    const cfg = loadOLSConfig();
+    const result = await smartQuery(question, cfg, []);
+    console.log(`\n${result.response}\n`);
+    if (result.references && result.references.length) {
       console.log(`${dim}References:${reset}`);
-      for (const doc of resp.referenced_documents) {
+      for (const doc of result.references) {
         console.log(`  ${cyan}→${reset} ${doc.title} ${dim}(${doc.url})${reset}`);
       }
       console.log();
     }
-    if (resp.conversation_id) {
-      console.log(`${dim}Conversation: ${resp.conversation_id}${reset}`);
-    }
+    console.log(`${dim}via ${result.source}${reset}`);
   } catch (e) {
     console.error(`${red}✗${reset} ${e.message}`);
-    process.exit(1);
   }
 }
 
 async function interactiveMode() {
   const readline = require("readline");
+  const cfg = loadOLSConfig();
 
-  console.log(`\n${bold}${cyan}OpenShift Lightspeed CLI${reset} v0.1.0`);
+  const backend = cfg.nimApiKey ? (cfg.serviceUrl ? "OLS + NIM" : "NIM") : "OLS";
+
+  console.log(`\n${bold}${cyan}OpenShift Lightspeed CLI${reset} v0.2.0  ${dim}[${backend}]${reset}`);
   console.log(`${dim}Type your question, or 'quit' to exit.${reset}\n`);
 
-  let conversationId;
+  const history = [];
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -127,19 +149,22 @@ async function interactiveMode() {
     }
     if (input === "health") { await healthCmd(); rl.prompt(); return; }
     if (input === "conversations") { await conversationsCmd(); rl.prompt(); return; }
+    if (input === "config") { configCmd(["show"]); rl.prompt(); return; }
 
     try {
-      const client = new OLSClient(loadOLSConfig());
-      const resp = await client.query({ query: input, conversation_id: conversationId });
-      conversationId = resp.conversation_id;
-      console.log(`\n${resp.response}\n`);
-      if (resp.referenced_documents && resp.referenced_documents.length) {
+      const currentCfg = loadOLSConfig();
+      const result = await smartQuery(input, currentCfg, history);
+      history.push({ role: "user", content: input });
+      history.push({ role: "assistant", content: result.response });
+      console.log(`\n${result.response}\n`);
+      if (result.references && result.references.length) {
         console.log(`${dim}References:${reset}`);
-        for (const doc of resp.referenced_documents) {
+        for (const doc of result.references) {
           console.log(`  ${cyan}→${reset} ${doc.title}`);
         }
         console.log();
       }
+      console.log(`${dim}via ${result.source}${reset}`);
     } catch (e) {
       console.error(`${red}✗${reset} ${e.message}`);
     }
@@ -149,26 +174,34 @@ async function interactiveMode() {
 
 async function main() {
   const args = process.argv.slice(2);
-
-  if (args.length === 0) {
-    return interactiveMode();
-  }
+  if (args.length === 0) return interactiveMode();
 
   const cmd = args[0];
-
   if (cmd === "config") return configCmd(args.slice(1));
   if (cmd === "health") return await healthCmd();
   if (cmd === "conversations" || cmd === "convos") return await conversationsCmd();
   if (cmd === "--help" || cmd === "-h" || cmd === "help") {
-    console.log(`${bold}Usage:${reset}
+    console.log(`${bold}OpenShift Lightspeed CLI${reset}
+
+${bold}Usage:${reset}
   ols                          Interactive mode
   ols "your question"          One-shot query
-  ols health                   Check OLS service health
-  ols conversations            List past conversations
+  ols health                   Check backends health
+  ols conversations            List OLS conversations
   ols config show              Show configuration
   ols config set <key> <val>   Set config value
   ols config init              Setup help
   ols help                     This help
+
+${bold}Config keys:${reset}
+  serviceUrl     OLS service URL
+  nimApiKey      NVIDIA NIM API key (fallback LLM)
+  nimModel       NIM model name
+  nimBaseUrl     NIM API base URL
+
+${bold}Backends:${reset}
+  1. OLS (OpenShift Lightspeed Service) — primary
+  2. NVIDIA NIM (OpenAI-compatible) — fallback
 `);
     return;
   }

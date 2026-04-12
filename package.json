@@ -1,6 +1,6 @@
 {
   "name": "@ols-cli/lightspeed",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "OpenShift Lightspeed CLI — AI-powered assistant for OpenShift from your terminal",
   "bin": {
     "ols": "./bin/ols.js"
@@ -16,7 +16,7 @@
   },
   "keywords": [
     "openshift", "lightspeed", "ols", "kubernetes", "cli",
-    "ai-agent", "assistant", "terminal", "devops"
+    "ai-agent", "assistant", "terminal", "devops", "nvidia", "nim"
   ],
   "author": "Chin (kcns008)",
   "license": "Apache-2.0",
@@ -35,6 +35,6 @@
     "access": "public"
   },
   "dependencies": {
-    "@ols-cli/client": "^0.1.1"
+    "@ols-cli/client": "^0.2.0"
   }
 }
