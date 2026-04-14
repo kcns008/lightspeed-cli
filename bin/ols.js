@@ -3,7 +3,6 @@
  * ols — OpenShift Lightspeed CLI
  * AI-powered assistant with OLS + NVIDIA NIM backends
  */
-const { OLSClient, smartQuery, loadOLSConfig, saveOLSConfig } = require("@ols-cli/client");
 
 const cyan = "\x1b[36m";
 const green = "\x1b[32m";
@@ -13,41 +12,50 @@ const bold = "\x1b[1m";
 const reset = "\x1b[0m";
 const dim = "\x1b[2m";
 
+let _client;
+async function getClient() {
+  if (!_client) _client = await import("@ols-cli/client");
+  return _client;
+}
+
 function configCmd(args) {
-  const cmd = args[0];
-  if (!cmd || cmd === "show") {
-    const cfg = loadOLSConfig();
-    // Mask API keys
-    const safe = { ...cfg };
-    if (safe.nimApiKey) safe.nimApiKey = safe.nimApiKey.slice(0, 8) + "...";
-    if (safe._conversationId) delete safe._conversationId;
-    console.log(JSON.stringify(safe, null, 2));
-    return;
-  }
-  if (cmd === "set" && args[1] && args[2] !== undefined) {
-    const cfg = loadOLSConfig();
-    const val = args[2] === "true" ? true : args[2] === "false" ? false : args[2];
-    cfg[args[1]] = val;
-    saveOLSConfig(cfg);
-    console.log(`${green}✓${reset} Set ${args[1]} = ${args[2]}`);
-    return;
-  }
-  if (cmd === "init") {
-    console.log(`${cyan}OpenShift Lightspeed CLI Configuration${reset}\n`);
-    console.log("  # Option 1: OpenShift Lightspeed Service");
-    console.log("  ols config set serviceUrl https://lightspeed-service.example.com:8443");
-    console.log("");
-    console.log("  # Option 2: NVIDIA NIM (works without OLS)");
-    console.log("  ols config set nimApiKey nvapi-xxxxx");
-    console.log("  ols config set nimModel nvidia/llama-3.1-nemotron-70b-instruct");
-    console.log("");
-    console.log("  # Auth from kubeconfig (for OLS): oc login");
-    return;
-  }
-  console.log("Usage: ols config [show|set|init]");
+  return getClient().then(({ loadOLSConfig, saveOLSConfig }) => {
+    const cmd = args[0];
+    if (!cmd || cmd === "show") {
+      const cfg = loadOLSConfig();
+      // Mask API keys
+      const safe = { ...cfg };
+      if (safe.nimApiKey) safe.nimApiKey = safe.nimApiKey.slice(0, 8) + "...";
+      if (safe._conversationId) delete safe._conversationId;
+      console.log(JSON.stringify(safe, null, 2));
+      return;
+    }
+    if (cmd === "set" && args[1] && args[2] !== undefined) {
+      const cfg = loadOLSConfig();
+      const val = args[2] === "true" ? true : args[2] === "false" ? false : args[2];
+      cfg[args[1]] = val;
+      saveOLSConfig(cfg);
+      console.log(`${green}✓${reset} Set ${args[1]} = ${args[2]}`);
+      return;
+    }
+    if (cmd === "init") {
+      console.log(`${cyan}OpenShift Lightspeed CLI Configuration${reset}\n`);
+      console.log("  # Option 1: OpenShift Lightspeed Service");
+      console.log("  ols config set serviceUrl https://lightspeed-service.example.com:8443");
+      console.log("");
+      console.log("  # Option 2: NVIDIA NIM (works without OLS)");
+      console.log("  ols config set nimApiKey nvapi-xxxxx");
+      console.log("  ols config set nimModel nvidia/llama-3.1-nemotron-70b-instruct");
+      console.log("");
+      console.log("  # Auth from kubeconfig (for OLS): oc login");
+      return;
+    }
+    console.log("Usage: ols config [show|set|init]");
+  });
 }
 
 async function healthCmd() {
+  const { OLSClient, NIMClient, loadOLSConfig } = await getClient();
   const cfg = loadOLSConfig();
   console.log(`\n${bold}Health Check${reset}\n`);
 
@@ -67,9 +75,8 @@ async function healthCmd() {
   // Check NIM
   if (cfg.nimApiKey) {
     try {
-      const { NIMClient } = require("@ols-cli/client");
       const nim = new NIMClient(cfg);
-      const resp = await nim.chat([{ role: "user", content: "ping" }]);
+      await nim.chat([{ role: "user", content: "ping" }]);
       console.log(`  ${green}✓${reset} NIM: connected (${cfg.nimModel || "default model"})`);
     } catch (e) {
       console.log(`  ${red}✗${reset} NIM: ${e.message}`);
@@ -81,6 +88,7 @@ async function healthCmd() {
 }
 
 async function conversationsCmd() {
+  const { OLSClient, loadOLSConfig } = await getClient();
   const cfg = loadOLSConfig();
   if (!cfg.serviceUrl) {
     console.log(`${yellow}OLS not configured. Set serviceUrl first.${reset}`);
@@ -105,6 +113,7 @@ async function conversationsCmd() {
 
 async function queryCmd(question) {
   try {
+    const { smartQuery, loadOLSConfig } = await getClient();
     const cfg = loadOLSConfig();
     const result = await smartQuery(question, cfg, []);
     console.log(`\n${result.response}\n`);
@@ -122,7 +131,8 @@ async function queryCmd(question) {
 }
 
 async function interactiveMode() {
-  const readline = require("readline");
+  const readline = await import("readline");
+  const { smartQuery, loadOLSConfig } = await getClient();
   const cfg = loadOLSConfig();
 
   const backend = cfg.nimApiKey ? (cfg.serviceUrl ? "OLS + NIM" : "NIM") : "OLS";
@@ -149,7 +159,7 @@ async function interactiveMode() {
     }
     if (input === "health") { await healthCmd(); rl.prompt(); return; }
     if (input === "conversations") { await conversationsCmd(); rl.prompt(); return; }
-    if (input === "config") { configCmd(["show"]); rl.prompt(); return; }
+    if (input === "config") { await configCmd(["show"]); rl.prompt(); return; }
 
     try {
       const currentCfg = loadOLSConfig();

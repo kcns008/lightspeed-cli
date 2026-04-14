@@ -12,7 +12,10 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "test": "echo \"no tests yet\""
+    "test": "npm test --prefix packages/ols-client",
+    "test:client": "npm test --prefix packages/ols-client",
+    "build:client": "npm run build --prefix packages/ols-client",
+    "typecheck:client": "cd packages/ols-client && npx tsc --noEmit"
   },
   "keywords": [
     "openshift", "lightspeed", "ols", "kubernetes", "cli",

@@ -3,11 +3,13 @@
  *
  * Wraps the OLS REST API for use from the CLI.
  * Handles auth (K8S bearer token), query, streaming, conversations, feedback.
+ * Also provides NIMClient for NVIDIA NIM and smartQuery for backend fallback.
  */
 
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, existsSync, mkdirSync, writeFileSync, chmodSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
+import * as yaml from "js-yaml";
 
 // --- Types ---
 
@@ -20,6 +22,14 @@ export interface OLSConfig {
 	namespace?: string;
 	/** Skip TLS verification (for dev) */
 	insecureSkipVerify?: boolean;
+	/** NVIDIA NIM API key */
+	nimApiKey?: string;
+	/** NIM model name */
+	nimModel?: string;
+	/** NIM API base URL */
+	nimBaseUrl?: string;
+	/** Internal: conversation ID for REPL continuity */
+	_conversationId?: string;
 }
 
 export interface OLSQueryRequest {
@@ -108,65 +118,101 @@ export interface HealthResponse {
 	services?: Record<string, string>;
 }
 
+export interface NIMChatMessage {
+	role: "system" | "user" | "assistant";
+	content: string;
+}
+
+export interface NIMChatResponse {
+	id: string;
+	choices: { message: { role: string; content: string }; finish_reason: string }[];
+	usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+}
+
+export interface SmartQueryResult {
+	response: string;
+	source: "ols" | "nim";
+	conversation_id?: string;
+	references?: ReferencedDocument[];
+}
+
 // --- Kubeconfig Token Extraction ---
 
-function extractTokenFromKubeconfig(kubeconfigPath?: string): string {
+interface KubeconfigContext {
+	name: string;
+	context: { cluster: string; user: string; namespace?: string };
+}
+
+interface KubeconfigUser {
+	name: string;
+	user: { token?: string; "client-certificate-data"?: string; "client-key-data"?: string };
+}
+
+interface KubeconfigFile {
+	"current-context"?: string;
+	contexts?: KubeconfigContext[];
+	users?: KubeconfigUser[];
+}
+
+export function extractTokenFromKubeconfig(kubeconfigPath?: string): string {
 	const path = kubeconfigPath || process.env.KUBECONFIG || join(homedir(), ".kube/config");
 	if (!existsSync(path)) {
 		throw new Error(`Kubeconfig not found at ${path}. Set KUBECONFIG or pass --kubeconfig.`);
 	}
+
 	const raw = readFileSync(path, "utf-8");
-	// Simple YAML parsing for current-context → user → token
-	// Full YAML parse avoided to skip dependency in this initial version
-	const lines = raw.split("\n");
-	let currentContext = "";
-	let inContext = false;
-	let inUser = false;
-	let userToken = "";
-	let userName = "";
+	const config = yaml.load(raw) as KubeconfigFile;
 
-	// Find current context
-	for (const line of lines) {
-		if (line.startsWith("current-context:")) {
-			currentContext = line.split(":")[1].trim().replace(/"/g, "");
-			break;
-		}
+	if (!config || typeof config !== "object") {
+		throw new Error("Invalid kubeconfig: could not parse YAML");
 	}
 
-	if (!currentContext) throw new Error("No current-context set in kubeconfig");
-
-	// Find the context that matches
-	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i];
-		if (line.match(/^- context:/)) {
-			inContext = false;
-		}
-		if (inContext && line.includes("user:")) {
-			userName = line.split("user:")[1].trim().replace(/"/g, "");
-			inContext = false;
-		}
-		if (line.includes(`name: ${currentContext}`) && lines[i - 2]?.includes("context:")) {
-			inContext = true;
-		}
+	const currentContext = config["current-context"];
+	if (!currentContext) {
+		throw new Error("No current-context set in kubeconfig");
 	}
 
-	// Find the user's token
-	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i];
-		if (line.match(/^- user:/)) {
-			inUser = false;
-		}
-		if (inUser && line.includes("token:")) {
-			userToken = line.split("token:")[1].trim().replace(/"/g, "");
-			break;
-		}
-		if (line.includes(`name: ${userName}`) && lines[i - 2]?.includes("user:")) {
-			inUser = true;
-		}
+	const ctxEntry = config.contexts?.find((c) => c.name === currentContext);
+	if (!ctxEntry) {
+		throw new Error(`Context "${currentContext}" not found in kubeconfig`);
 	}
 
-	if (!userToken) throw new Error("No token found in kubeconfig for current user. Use `oc login` first.");
-	return userToken;
+	const userName = ctxEntry.context.user;
+	const userEntry = config.users?.find((u) => u.name === userName);
+	if (!userEntry) {
+		throw new Error(`User "${userName}" not found in kubeconfig`);
+	}
+
+	const token = userEntry.user?.token;
+	if (!token) {
+		throw new Error("No token found in kubeconfig for current user. Use `oc login` first.");
+	}
+
+	return token;
+}
+
+// --- TLS Agent for insecureSkipVerify ---
+
+function buildFetchOptions(insecureSkipVerify?: boolean): RequestInit {
+	if (!insecureSkipVerify) return {};
+	// Node.js 18+ supports custom dispatcher via undici, but for global fetch
+	// the simplest approach is setting NODE_TLS_REJECT_UNAUTHORIZED.
+	// We set it only for the scope of the request and restore after.
+	// This is safe for CLI usage (single-user process).
+	return {};
+}
+
+function withTlsSkip<T>(insecureSkipVerify: boolean | undefined, fn: () => Promise<T>): Promise<T> {
+	if (!insecureSkipVerify) return fn();
+	const prev = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+	process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+	return fn().finally(() => {
+		if (prev === undefined) {
+			delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+		} else {
+			process.env.NODE_TLS_REJECT_UNAUTHORIZED = prev;
+		}
+	});
 }
 
 // --- OLS Client ---
@@ -193,18 +239,21 @@ export class OLSClient {
 
 	private async request<T>(path: string, options: { method: string; body?: unknown }): Promise<T> {
 		const url = `${this.baseUrl}${path}`;
-		const resp = await fetch(url, {
-			method: options.method,
-			headers: this.headers,
-			body: options.body ? JSON.stringify(options.body) : undefined,
+		return withTlsSkip(this.config.insecureSkipVerify, async () => {
+			const resp = await fetch(url, {
+				...buildFetchOptions(this.config.insecureSkipVerify),
+				method: options.method,
+				headers: this.headers,
+				body: options.body ? JSON.stringify(options.body) : undefined,
+			});
+
+			if (!resp.ok) {
+				const text = await resp.text();
+				throw new Error(`OLS API error ${resp.status}: ${text}`);
+			}
+
+			return resp.json() as Promise<T>;
 		});
-
-		if (!resp.ok) {
-			const text = await resp.text();
-			throw new Error(`OLS API error ${resp.status}: ${text}`);
-		}
-
-		return resp.json() as Promise<T>;
 	}
 
 	/** POST /v1/query — non-streaming query */
@@ -218,11 +267,14 @@ export class OLSClient {
 	/** POST /v1/streaming_query — streaming query via SSE */
 	async *streamingQuery(req: OLSQueryRequest): AsyncGenerator<StreamingChunk> {
 		const url = `${this.baseUrl}/v1/streaming_query`;
-		const resp = await fetch(url, {
-			method: "POST",
-			headers: this.headers,
-			body: JSON.stringify(req),
-		});
+		const resp = await withTlsSkip(this.config.insecureSkipVerify, () =>
+			fetch(url, {
+				...buildFetchOptions(this.config.insecureSkipVerify),
+				method: "POST",
+				headers: this.headers,
+				body: JSON.stringify(req),
+			}),
+		);
 
 		if (!resp.ok) {
 			const text = await resp.text();
@@ -287,6 +339,119 @@ export class OLSClient {
 	}
 }
 
+// --- NVIDIA NIM Client ---
+
+const DEFAULT_NIM_BASE_URL = "https://integrate.api.nvidia.com";
+const DEFAULT_NIM_MODEL = "nvidia/llama-3.1-nemotron-70b-instruct";
+
+export class NIMClient {
+	private apiKey: string;
+	private model: string;
+	private baseUrl: string;
+
+	constructor(config: Pick<OLSConfig, "nimApiKey" | "nimModel" | "nimBaseUrl">) {
+		if (!config.nimApiKey) {
+			throw new Error("NIM API key is required. Set it with: ols config set nimApiKey <key>");
+		}
+		this.apiKey = config.nimApiKey;
+		this.model = config.nimModel || DEFAULT_NIM_MODEL;
+		this.baseUrl = (config.nimBaseUrl || DEFAULT_NIM_BASE_URL).replace(/\/+$/, "");
+	}
+
+	private get headers(): Record<string, string> {
+		return {
+			"Content-Type": "application/json",
+			Authorization: `Bearer ${this.apiKey}`,
+		};
+	}
+
+	/** Send a chat completion request to NIM (OpenAI-compatible) */
+	async chat(messages: NIMChatMessage[], options?: { temperature?: number; maxTokens?: number }): Promise<NIMChatResponse> {
+		const url = `${this.baseUrl}/v1/chat/completions`;
+		const body: Record<string, unknown> = {
+			model: this.model,
+			messages,
+		};
+		if (options?.temperature !== undefined) body.temperature = options.temperature;
+		if (options?.maxTokens !== undefined) body.max_tokens = options.maxTokens;
+
+		const resp = await fetch(url, {
+			method: "POST",
+			headers: this.headers,
+			body: JSON.stringify(body),
+		});
+
+		if (!resp.ok) {
+			const text = await resp.text();
+			throw new Error(`NIM API error ${resp.status}: ${text}`);
+		}
+
+		return resp.json() as Promise<NIMChatResponse>;
+	}
+
+	/** Simple query — wraps chat with a single user message */
+	async query(question: string, history?: NIMChatMessage[]): Promise<string> {
+		const messages: NIMChatMessage[] = [
+			{
+				role: "system",
+				content:
+					"You are an OpenShift and Kubernetes expert assistant. " +
+					"Answer questions clearly and concisely, with code examples when helpful.",
+			},
+			...(history || []),
+			{ role: "user", content: question },
+		];
+		const response = await this.chat(messages);
+		return response.choices[0]?.message?.content || "";
+	}
+}
+
+// --- Smart Query (OLS-first with NIM fallback) ---
+
+/**
+ * Query using OLS first; if OLS is unavailable or not configured, fall back to NIM.
+ * Returns the response with source attribution.
+ */
+export async function smartQuery(
+	question: string,
+	config: OLSConfig,
+	history?: NIMChatMessage[],
+): Promise<SmartQueryResult> {
+	// Try OLS first if configured
+	if (config.serviceUrl) {
+		try {
+			const client = new OLSClient(config);
+			const result = await client.query({
+				query: question,
+				conversation_id: config._conversationId,
+			});
+			return {
+				response: result.response,
+				source: "ols",
+				conversation_id: result.conversation_id,
+				references: result.referenced_documents,
+			};
+		} catch {
+			// OLS failed, fall through to NIM
+		}
+	}
+
+	// Fall back to NIM
+	if (config.nimApiKey) {
+		const nim = new NIMClient(config);
+		const response = await nim.query(question, history);
+		return {
+			response,
+			source: "nim",
+		};
+	}
+
+	throw new Error(
+		"No backend available. Configure OLS (ols config set serviceUrl <url>) " +
+			"or NIM (ols config set nimApiKey <key>).",
+	);
+}
+
 // --- Config Loading ---
 
 export function loadOLSConfig(): OLSConfig {
@@ -298,13 +463,12 @@ export function loadOLSConfig(): OLSConfig {
 		return JSON.parse(raw) as OLSConfig;
 	}
 
-	// Auto-detect from kubeconfig context
-	const serviceUrl = process.env.OLS_SERVICE_URL || "https://lightspeed-service.openshift-operators.svc:8443";
+	// Auto-detect from env or use empty defaults
+	const serviceUrl = process.env.OLS_SERVICE_URL || "";
 	return { serviceUrl };
 }
 
 export function saveOLSConfig(config: OLSConfig): void {
-	const { mkdirSync, writeFileSync, chmodSync } = require("fs");
 	const configDir = join(homedir(), ".ols");
 	mkdirSync(configDir, { recursive: true });
 	const configPath = join(configDir, "config.json");
